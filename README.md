@@ -41,7 +41,7 @@ Validate:
    - Database starts with persisted data
 
 ### Notes
-!! Downloading OSM data inside the container is **acceptable only for local testing**.
+❗ Downloading OSM data inside the container is **acceptable only for local testing**.
 
 ---
 
@@ -136,3 +136,4 @@ This lifecycle ensures:
 - Production safety
 
 The same database image can be reused across all stages with environment-specific orchestration.
+
