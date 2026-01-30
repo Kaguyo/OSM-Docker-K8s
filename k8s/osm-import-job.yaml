@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osm-import
+  namespace: geodb
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: osm-import
+          image: iboates/osm2pgsql:latest
+          env:
+            - name: PGPASSWORD
+              value: geo
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              echo "Downloading Brazil OSM data..."
+              wget -O /data/brazil.osm.pbf https://download.geofabrik.de/south-america/brazil-latest.osm.pbf
+
+              echo "Running osm2pgsql import..."
+              osm2pgsql \
+                --create \
+                --database geodb \
+                --username geo \
+                --host postgres.geodb.svc.cluster.local \
+                --port 5432 \
+                --slim \
+                --hstore \
+                --multi-geometry \
+                --number-processes 2 \
+                /data/brazil.osm.pbf
+          volumeMounts:
+            - name: osm-data
+              mountPath: /data
+      volumes:
+        - name: osm-data
+          emptyDir: {}

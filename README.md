@@ -1,47 +1,58 @@
 # OSM + PostGIS (Brazil) — Deployment Lifecycle
 
-This project provides a PostgreSQL + PostGIS database preloaded with OpenStreetMap
-data for Brazil. The same container image is used across environments, with
-different operational behaviors depending on the stage.
+This project provisions a **PostgreSQL + PostGIS** database for Brazil using
+**OpenStreetMap (OSM)** data, designed to run consistently across **test,
+homologation, and production** using Kubernetes-native patterns.
 
-The architecture relies on **persistent volumes (PVC)** to guarantee data
-survival across restarts and redeployments.
+Persistence is guaranteed through **Persistent Volume Claims (PVCs)**.
+OSM ingestion is handled via a **one-time Kubernetes Job**, never coupled to
+database startup.
 
 ---
 
-## 1. Test Environment (Local)
+## Repository Structure
+
+```text
+.
+├── k8s/
+│   ├── pg-pvc.yaml                  # Persistent Volume Claim
+│   ├── postgres-statefulset.yaml    # PostgreSQL + PostGIS StatefulSet
+│   ├── postgres-service.yaml        # Internal ClusterIP Service
+│   └── osm-import-job.yaml          # One-time OSM import Job
+└── README.md
+```
+
+## 1. Test Environment (Minikube)
 
 ### Purpose
 Validate:
-- Postgres initialization
-- PostGIS extensions
-- Schema creation
-- OSM import logic
-- Volume persistence behavior
+- Kubernetes manifests
+- Postgres + PostGIS setup
+- PVC behavior
+- OSM import workflow
+- Data persistence across pod restarts
 
 ### Characteristics
-- Runs **locally** using Docker / Docker Compose
-- OSM data is **downloaded inside the container**
-- Uses a **Docker volume** to simulate a Kubernetes PVC
-- Designed for experimentation and debugging
+- Runs locally using **Minikube**
+- Real Kubernetes (not Docker Compose)
+- Uses PVCs provisioned by Minikube
+- OSM data may be downloaded during import **for testing only**
 
 ### Workflow
-1. Start the container locally
-2. Docker creates a persistent volume
-3. PostgreSQL initializes (`initdb`)
-4. SQL and shell scripts in `/docker-entrypoint-initdb.d` run:
-   - PostGIS extensions are enabled
-   - GeocodeBR / custom schemas are created
-   - Brazil OSM data is downloaded from Geofabrik
-   - Data is imported and formatted using PostGIS
-5. All data is written to the local volume
-6. On container restart:
-   - Existing volume is detected
-   - Initialization and import are skipped
-   - Database starts with persisted data
+1. Minikube cluster is started
+2. PVC is created by the cluster
+3. PostgreSQL + PostGIS runs as a **StatefulSet**
+4. A Kubernetes **Job**:
+   - Downloads Brazil OSM data (Geofabrik)
+   - Imports data using `osm2pgsql`
+   - Writes into Postgres via internal Service
+5. Job completes and never runs again
+6. PostgreSQL restarts reuse the same PVC
 
 ### Notes
-❗ Downloading OSM data inside the container is **acceptable only for local testing**.
+- OSM download during this stage is acceptable
+- Database startup is never blocked by imports
+- This stage mirrors production topology as closely as possible
 
 ---
 
@@ -49,33 +60,31 @@ Validate:
 
 ### Purpose
 Validate:
-- Kubernetes manifests
-- PVC behavior
-- Import execution in a real cluster
-- Startup and restart semantics
+- Production-grade Kubernetes manifests
+- Import execution reliability
+- PVC lifecycle and recovery
+- Restart and rescheduling behavior
 
 ### Characteristics
-- Runs in a **real Kubernetes cluster**
-- Uses a **Pod or Job** to execute the OSM import
-- OSM data is **imported**, not downloaded at runtime
-- Uses Kubernetes PVCs
+- Runs in a real Kubernetes cluster
+- Uses the same images as production
+- OSM import executed via a **controlled Job**
+- No database startup scripts perform downloads
 
 ### Workflow
-1. Kubernetes provisions a PVC
-2. A Kubernetes **Job or Init Pod**:
-   - Has access to the OSM file (mounted or preloaded)
-   - Runs the import process (`osm2pgsql`)
-   - Writes all data to the PVC
-3. PostgreSQL Pod starts:
-   - Mounts the existing PVC
-   - Detects pre-existing data
-   - Skips initialization scripts
-4. Database becomes available with imported OSM data
+1. PVC is provisioned
+2. One-time **OSM Import Job** runs:
+   - Uses a mounted or pre-provisioned OSM file
+   - Imports data into Postgres
+3. PostgreSQL StatefulSet starts:
+   - Mounts existing PVC
+   - Uses only persisted data
+4. Database becomes available
 
 ### Notes
-  This stage validates real cluster behavior  
-  No external downloads are required during DB startup  
-  Failures can be retried safely
+- Import can be retried safely
+- No coupling between Postgres lifecycle and ingestion
+- No external network dependency after import
 
 ---
 
@@ -86,54 +95,51 @@ Run a stable, secure, and reproducible geospatial database in production.
 
 ### Characteristics
 - Kubernetes `StatefulSet`
-- Persistent Volume Claim (PVC)
-- No public exposure of database internals
+- PVC-backed storage
+- One-time import (offline or controlled)
 - No runtime downloads
-- Environment variables injected securely
+- No public database exposure
 
 ### Workflow
-1. PVC is provisioned by the cluster
-2. (Optional) One-time import Job prepares the PVC
+1. PVC is provisioned
+2. (Optional) One-time import Job prepares the data
 3. PostgreSQL StatefulSet starts:
    - Mounts the PVC
    - Uses existing data only
-   - Does not run initialization scripts again
-4. Database serves requests normally
+4. Database serves internal consumers
 
 ### Security Practices
 - Credentials stored in **Kubernetes Secrets**
-- No hardcoded passwords
-- No exposed ports unless explicitly required
-- Network access restricted via policies
-- No outbound internet dependency
+- No hardcoded values
+- No public ports
+- Restricted network access
+- Zero dependency on external downloads
 
 ---
 
 ## Procedural Mapping Summary
 
-| Stage        | Storage        | OSM Source        | Import Timing     |
-|--------------|----------------|-------------------|-------------------|
-| Test         | Docker Volume  | Download (live)   | On first startup  |
-| Homologation | Kubernetes PVC | Mounted / Job     | One-time execution|
-| Production   | Kubernetes PVC | Pre-imported data | Never at runtime  |
+| Stage         | Platform   | Storage | OSM Source           | Import Timing |
+|---------------|------------|---------|----------------------|---------------|
+| Test          | Minikube   | PVC     | Download (Geofabrik) | One-time Job  |
+| Homologation  | Kubernetes | PVC     | Mounted / Preloaded  | One-time Job  |
+| Production    | Kubernetes | PVC     | Pre-imported         | Never runtime |
 
 ---
 
-## Key Principles
+## Core Principles
 
-- **PVC presence defines database state**
-- **Initialization scripts run only once**
-- **Data survives restarts and rescheduling**
-- **Production never depends on external downloads**
+- Database containers must be **boring**
+- Imports must be **explicit and one-time**
+- PVC presence defines database state
+- Restarts must never trigger re-imports
+- Production must not depend on the internet
 
 ---
 
 ## Final Note
 
-This lifecycle ensures:
-- Local simplicity
-- Kubernetes correctness
-- Production safety
+Minikube is not a “mock” — it is the **first-class test environment**.
+If it works in Minikube, it works in production.
 
-The same database image can be reused across all stages with environment-specific orchestration.
-
+The same images are reused across all stages; only orchestration changes.
