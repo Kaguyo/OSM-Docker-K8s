@@ -35,14 +35,14 @@ spec:
 
               OSM_FILE="/data/brazil.osm.pbf"
 
-              # Check if OSM file already exists (for homologation re-runs)
+              # Production: file must be pre-loaded into PVC
               if [ ! -f "$OSM_FILE" ]; then
-                echo "Downloading Brazil OSM data..."
-                wget -O "$OSM_FILE" https://download.geofabrik.de/south-america/brazil-latest.osm.pbf
-              else
-                echo "OSM file already present, skipping download"
+                echo "ERROR: OSM file not found at $OSM_FILE"
+                echo "File must be pre-loaded into osm-data-pvc before job execution"
+                exit 1
               fi
 
+              echo "OSM file found, proceeding with import..."
               echo "Running osm2pgsql import..."
               osm2pgsql \
                 --create \

@@ -4,9 +4,10 @@ metadata:
   name: postgres
   namespace: geodb
 spec:
+  clusterIP: None
+  selector:
+    app: postgres
   ports:
     - port: 5432
       targetPort: 5432
-  selector:
-    app: postgres
-  clusterIP: None
+  publishNotReadyAddresses: false
